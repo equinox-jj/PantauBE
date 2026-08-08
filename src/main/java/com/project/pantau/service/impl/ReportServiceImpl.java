@@ -357,7 +357,7 @@ public class ReportServiceImpl implements ReportService {
         );
     }
 
-    private QueueCounts buildQueueCounts(List<ReportRepository.StatusCountProjection> rows) {
+    private QueueCounts buildQueueCounts(List<StatusCountProjection> rows) {
         long open = 0;
         long inProgress = 0;
         long resolved = 0;

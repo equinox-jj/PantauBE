@@ -1,5 +1,6 @@
 package com.project.pantau.repository;
 
+import com.project.pantau.dto.report.StatusCountProjection;
 import com.project.pantau.entity.Report;
 import com.project.pantau.enums.ReportStatus;
 import org.springframework.data.domain.Page;
@@ -91,10 +92,4 @@ public interface ReportRepository extends JpaRepository<Report, UUID> {
             @Param("lng") double longitude,
             @Param("radiusMeters") int radiusMeters
     );
-
-    interface StatusCountProjection {
-        String getStatus();
-
-        long getCount();
-    }
 }

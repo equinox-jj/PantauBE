@@ -62,8 +62,8 @@ public class ReportController {
 
     @GetMapping("/nearby")
     public ResponseEntity<ApiResponse<List<NearbyReportResponse>>> getNearbyReports(
-            @RequestParam(name = "lat") double latitude,
-            @RequestParam(name = "lng") double longitude,
+            @RequestParam(name = "latitude") double latitude,
+            @RequestParam(name = "longitude") double longitude,
             @RequestParam(name = "radius_meter", defaultValue = "1000") int radiusMeter,
             @RequestParam(name = "limit", defaultValue = "20") int limit
     ) {
@@ -132,8 +132,8 @@ public class ReportController {
     @GetMapping("/queue")
     public ResponseEntity<ApiResponse<QueueResponse>> getQueue(
             @RequestParam(name = "tab") QueueTab tab,
-            @RequestParam(name = "lat") double latitude,
-            @RequestParam(name = "lng") double longitude,
+            @RequestParam(name = "latitude") double latitude,
+            @RequestParam(name = "longitude") double longitude,
             @RequestParam(name = "radius_meter", defaultValue = "5000") int radiusMeter,
             @RequestParam(defaultValue = "20") int limit,
             @RequestParam(defaultValue = "0") int offset
