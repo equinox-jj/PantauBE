@@ -1,7 +1,9 @@
 package com.project.pantau.common.exception;
 
-public class IllegalTransitionException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class IllegalTransitionException extends ApiException {
     public IllegalTransitionException(String message) {
-        super(message);
+        super(HttpStatus.CONFLICT, message);
     }
 }

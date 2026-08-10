@@ -1,13 +1,10 @@
 package com.project.pantau.common.exception;
 
 import com.project.pantau.common.response.ApiResponse;
-import jakarta.persistence.EntityNotFoundException;
-import jakarta.validation.ConstraintViolationException;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -31,20 +28,14 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
-import java.util.NoSuchElementException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleResourceNotFound(ResourceNotFoundException ex) {
-        return error(HttpStatus.NOT_FOUND, ex.getMessage());
-    }
-
-    @ExceptionHandler(EmailAlreadyExistsException.class)
-    public ResponseEntity<ApiResponse<Void>> handleEmailExists(EmailAlreadyExistsException ex) {
-        return error(HttpStatus.CONFLICT, ex.getMessage());
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiResponse<Void>> handleApiException(ApiException ex) {
+        return error(ex.getStatus(), ex.getMessage());
     }
 
     @ExceptionHandler(BadCredentialsException.class)
@@ -52,54 +43,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return error(HttpStatus.UNAUTHORIZED, "Invalid email or password");
     }
 
-    @ExceptionHandler(ValidationException.class)
-    public ResponseEntity<ApiResponse<Void>> handleValidationException(ValidationException ex) {
-        return error(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());
-    }
-
-    @ExceptionHandler(IllegalTransitionException.class)
-    public ResponseEntity<ApiResponse<Void>> handleIllegalTransition(IllegalTransitionException ex) {
-        return error(HttpStatus.CONFLICT, ex.getMessage());
-    }
-
-    @ExceptionHandler(FileStorageException.class)
-    public ResponseEntity<ApiResponse<Void>> handleFileStorage(FileStorageException ex) {
-        return error(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
-    }
-
-    @ExceptionHandler(BadRequestException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBadRequest(BadRequestException ex) {
-        return error(HttpStatus.BAD_REQUEST, ex.getMessage());
-    }
-
-    @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ApiResponse<List<FieldErrorItem>>> handleConstraintViolation(ConstraintViolationException ex) {
-        var errors = ex.getConstraintViolations().stream()
-                .map(v -> new FieldErrorItem(v.getPropertyPath().toString(), v.getMessage()))
-                .toList();
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-                .body(new ApiResponse<>(false, "Validation failed", errors));
-    }
-
-    @ExceptionHandler(EntityNotFoundException.class)
-    public ResponseEntity<ApiResponse<Void>> handleEntityNotFound(EntityNotFoundException ex) {
-        return error(HttpStatus.NOT_FOUND, ex.getMessage());
-    }
-
-    @ExceptionHandler(NoSuchElementException.class)
-    public ResponseEntity<ApiResponse<Void>> handleNoSuchElement(NoSuchElementException ex) {
-        return error(HttpStatus.NOT_FOUND, "The requested resource could not be found");
-    }
-
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        logger.warn("Data integrity violation", ex);
         return error(HttpStatus.CONFLICT,
                 "The request could not be completed due to a data conflict (e.g. duplicate or referenced record)");
-    }
-
-    @ExceptionHandler(OptimisticLockingFailureException.class)
-    public ResponseEntity<ApiResponse<Void>> handleOptimisticLocking(OptimisticLockingFailureException ex) {
-        return error(HttpStatus.CONFLICT, "The resource was modified by another request. Please retry.");
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -115,11 +63,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException ex) {
         return error(HttpStatus.BAD_REQUEST, ex.getMessage());
-    }
-
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<ApiResponse<Void>> handleIllegalState(IllegalStateException ex) {
-        return error(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -146,8 +89,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         var errors = ex.getBindingResult().getFieldErrors().stream()
                 .map(fe -> new FieldErrorItem(fe.getField(), fe.getDefaultMessage()))
                 .toList();
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-                .body(new ApiResponse<>(false, "Validation failed", errors));
+        return validationError(errors);
     }
 
     @Override
@@ -234,22 +176,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             @NonNull HttpStatusCode status,
             @NonNull WebRequest request) {
 
-        var errors = ex.getAllErrors()
-                .stream()
-                .map(error -> new FieldErrorItem(
-                        "param",
-                        error.getDefaultMessage()))
+        var errors = ex.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream()
+                        .map(error -> new FieldErrorItem(
+                                result.getMethodParameter().getParameterName(),
+                                error.getDefaultMessage())))
                 .toList();
 
-        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-                .body(new ApiResponse<>(
-                        false,
-                        "Validation failed",
-                        errors
-                ));
+        return validationError(errors);
     }
 
     private ResponseEntity<ApiResponse<Void>> error(HttpStatus status, String message) {
         return ResponseEntity.status(status).body(new ApiResponse<>(false, message, null));
+    }
+
+    private ResponseEntity<Object> validationError(List<FieldErrorItem> errors) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
+                .body(new ApiResponse<>(false, "Validation failed", errors));
     }
 }

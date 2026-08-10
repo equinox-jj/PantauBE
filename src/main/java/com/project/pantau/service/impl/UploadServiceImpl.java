@@ -84,7 +84,7 @@ public class UploadServiceImpl implements UploadService {
             throw new ValidationException("Maximum image size is 5MB.");
         }
 
-        if (!ALLOWED_CONTENT_TYPES.contains(file.getContentType())) {
+        if (file.getContentType() == null || !ALLOWED_CONTENT_TYPES.contains(file.getContentType())) {
             throw new ValidationException("Only JPEG, PNG, WEBP, or GIF images are allowed.");
         }
 

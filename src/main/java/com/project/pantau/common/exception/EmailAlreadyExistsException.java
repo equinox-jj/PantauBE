@@ -1,7 +1,9 @@
 package com.project.pantau.common.exception;
 
-public class EmailAlreadyExistsException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class EmailAlreadyExistsException extends ApiException {
     public EmailAlreadyExistsException(String message) {
-        super(message);
+        super(HttpStatus.CONFLICT, message);
     }
 }

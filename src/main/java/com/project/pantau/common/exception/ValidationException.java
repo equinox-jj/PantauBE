@@ -1,7 +1,9 @@
 package com.project.pantau.common.exception;
 
-public class ValidationException extends RuntimeException {
+import org.springframework.http.HttpStatus;
+
+public class ValidationException extends ApiException {
     public ValidationException(String message) {
-        super(message);
+        super(HttpStatus.UNPROCESSABLE_CONTENT, message);
     }
 }
