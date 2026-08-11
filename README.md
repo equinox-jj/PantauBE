@@ -24,7 +24,7 @@ src/main/java/com/project/pantau/
 │   ├── response/      # Shared API response wrapper
 │   ├── security/      # JWT filter, user details, auth entry points
 │   └── utils/          # Geo utilities, report status transition rules
-├── controller/         # REST controllers (Auth, Category, Report)
+├── controller/         # REST controllers (Auth, Category, Report, User)
 ├── dto/                # Request/response DTOs
 ├── entity/             # JPA entities (User, Report, Category, ReportStatusHistory)
 ├── enums/              # UserRole, ReportStatus
@@ -102,16 +102,23 @@ snake_case.
 
 ### Reports — `/api/v1/reports`
 
-| Method | Endpoint       | Access     | Description                                 |
-|--------|----------------|------------|---------------------------------------------|
-| POST   | `/`            | `CITIZEN`  | Create a report (multipart, with photo)     |
-| GET    | `/{id}`        | Public     | Get report detail                           |
-| GET    | `/nearby`      | Public     | List reports near a lat/lng within a radius |
-| GET    | `/mine`        | `CITIZEN`  | List the authenticated user's reports       |
-| PATCH  | `/{id}/status` | `RESOLVER` | Update a report's status                    |
+| Method | Endpoint        | Access     | Description                                            |
+|--------|-----------------|------------|--------------------------------------------------------|
+| POST   | `/`             | `CITIZEN`  | Create a report (multipart, with photo)                |
+| GET    | `/{id}`         | Public     | Get report detail                                      |
+| GET    | `/{id}/history` | Public     | Get a report's status change history                   |
+| GET    | `/nearby`       | Public     | List reports near a latitude/longitude within a radius |
+| GET    | `/mine`         | `CITIZEN`  | List the authenticated user's reports                  |
+| PATCH  | `/{id}`         | `CITIZEN`  | Update a report (multipart, owner only)                |
+| DELETE | `/{id}`         | `CITIZEN`  | Delete a report (owner only)                           |
+| GET    | `/queue`        | `RESOLVER` | List queued reports by tab, sorted by distance         |
+| PATCH  | `/{id}/status`  | `RESOLVER` | Update a report's status                               |
 
 Report status follows: `REPORTED → ACKNOWLEDGED → IN_PROGRESS → RESOLVED → CLOSED`, with `REJECTED` as a terminal
 alternate state. Allowed transitions are enforced in `ReportStatusTransitions`.
+
+The resolver queue (`/queue`) groups reports into tabs: `OPEN` (`REPORTED`, `ACKNOWLEDGED`), `IN_PROGRESS`, and
+`RESOLVED`.
 
 ### Categories — `/api/v1/categories`
 
@@ -121,7 +128,13 @@ alternate state. Allowed transitions are enforced in `ReportStatusTransitions`.
 | GET    | `/{id}`        | Get category by ID   |
 | GET    | `/slug/{slug}` | Get category by slug |
 
+### Users — `/api/v1/users`
+
+| Method | Endpoint | Access | Description                          |
+|--------|----------|--------|--------------------------------------|
+| GET    | `/me`    | Auth   | Get the authenticated user's profile |
+
 ## Roles
 
-- **CITIZEN** — creates reports, views own reports
-- **RESOLVER** — updates report status
+- **CITIZEN** — creates, updates, and deletes own reports
+- **RESOLVER** — works the queue, updates report status
