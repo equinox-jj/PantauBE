@@ -323,7 +323,7 @@ class ReportServiceImplTest {
     class GetNearbyReports {
 
         @Test
-        @DisplayName("returns mapped list with the first photo as thumbnail")
+        @DisplayName("returns mapped list with all photo urls")
         void getNearbyReportsSuccess() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
@@ -338,8 +338,8 @@ class ReportServiceImplTest {
                     .thenReturn(List.of(report1, report2));
             when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId(), report2.getId())))
                     .thenReturn(List.of(photo1, photo2));
-            when(reportMapper.toNearbyResponse(report1, "http://cdn.example.com/p1.jpg")).thenReturn(response1);
-            when(reportMapper.toNearbyResponse(report2, "http://cdn.example.com/p2.jpg")).thenReturn(response2);
+            when(reportMapper.toNearbyResponse(report1, List.of("http://cdn.example.com/p1.jpg"))).thenReturn(response1);
+            when(reportMapper.toNearbyResponse(report2, List.of("http://cdn.example.com/p2.jpg"))).thenReturn(response2);
 
             var result = reportService.getNearbyReports(JAKARTA_LAT, JAKARTA_LNG, 1000, 20);
 
@@ -347,7 +347,7 @@ class ReportServiceImplTest {
         }
 
         @Test
-        @DisplayName("passes a null thumbnail when a report has no photos")
+        @DisplayName("passes an empty photo list when a report has no photos")
         void getNearbyReportsNoPhotos() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
@@ -358,7 +358,7 @@ class ReportServiceImplTest {
                     .thenReturn(List.of(report1));
             when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId())))
                     .thenReturn(List.of());
-            when(reportMapper.toNearbyResponse(report1, null)).thenReturn(response1);
+            when(reportMapper.toNearbyResponse(report1, List.of())).thenReturn(response1);
 
             var result = reportService.getNearbyReports(JAKARTA_LAT, JAKARTA_LNG, 1000, 20);
 

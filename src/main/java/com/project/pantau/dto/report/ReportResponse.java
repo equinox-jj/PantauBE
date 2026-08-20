@@ -14,8 +14,8 @@ public record ReportResponse(
         CategoryResponse category,
         String description,
         List<String> photoUrls,
-        Double latitude,
-        Double longitude,
+        double latitude,
+        double longitude,
         ReportStatus status,
         LocalDateTime createdAt,
         LocalDateTime updatedAt

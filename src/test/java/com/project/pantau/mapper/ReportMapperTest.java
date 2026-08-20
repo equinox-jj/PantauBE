@@ -104,12 +104,14 @@ class ReportMapperTest {
     @Test
     void toNearbyResponse_mapsAllFieldsExcludingDescription() {
         Report report = buildReport();
+        List<String> photoUrls = List.of("https://example.com/photo1.jpg", "https://example.com/photo2.jpg");
 
-        NearbyReportResponse response = reportMapper.toNearbyResponse(report, "https://example.com/photo1.jpg");
+        NearbyReportResponse response = reportMapper.toNearbyResponse(report, photoUrls);
 
         assertThat(response).isNotNull();
         assertThat(response.id()).isEqualTo(report.getId());
-        assertThat(response.photoUrl()).isEqualTo("https://example.com/photo1.jpg");
+        assertThat(response.photoUrls()).containsExactly(
+                "https://example.com/photo1.jpg", "https://example.com/photo2.jpg");
         assertThat(response.status()).isEqualTo(ReportStatus.REPORTED);
         assertThat(response.latitude()).isEqualTo(LATITUDE, offset(1e-9));
         assertThat(response.longitude()).isEqualTo(LONGITUDE, offset(1e-9));

@@ -98,10 +98,11 @@ public class ReportServiceImpl implements ReportService {
         }
 
         var reports = reportRepository.findNearbyReport(latitude, longitude, radiusMeter, limit);
-        var thumbnails = loadThumbnails(reports);
+        var photoUrlsByReport = loadPhotoUrlsByReport(reports);
 
         return reports.stream()
-                .map(report -> reportMapper.toNearbyResponse(report, thumbnails.get(report.getId())))
+                .map(report -> reportMapper.toNearbyResponse(
+                        report, photoUrlsByReport.getOrDefault(report.getId(), List.of())))
                 .toList();
     }
 

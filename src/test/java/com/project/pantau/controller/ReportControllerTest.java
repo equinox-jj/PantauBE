@@ -255,7 +255,7 @@ class ReportControllerTest {
                 NearbyReportResponse.builder()
                         .id(UUID.randomUUID())
                         .category(buildCategory())
-                        .photoUrl("https://cdn.example.com/photo.jpg")
+                        .photoUrls(List.of("https://cdn.example.com/photo.jpg"))
                         .status(ReportStatus.REPORTED)
                         .latitude(-6.2)
                         .longitude(106.8)

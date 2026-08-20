@@ -21,8 +21,8 @@ public interface ReportMapper {
 
     @Mapping(target = "latitude", source = "report.latitude")
     @Mapping(target = "longitude", source = "report.longitude")
-    @Mapping(target = "photoUrl", source = "photoUrl")
-    NearbyReportResponse toNearbyResponse(Report report, String photoUrl);
+    @Mapping(target = "photoUrls", source = "photoUrls")
+    NearbyReportResponse toNearbyResponse(Report report, List<String> photoUrls);
 
     @Mapping(target = "latitude", source = "report.latitude")
     @Mapping(target = "longitude", source = "report.longitude")
