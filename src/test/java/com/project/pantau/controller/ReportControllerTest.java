@@ -102,7 +102,7 @@ class ReportControllerTest {
                 .id(id)
                 .category(buildCategory())
                 .description("Pothole on Main St")
-                .photoUrl("https://cdn.example.com/photo.jpg")
+                .photoUrls(List.of("https://cdn.example.com/photo.jpg"))
                 .latitude(-6.2)
                 .longitude(106.8)
                 .status(ReportStatus.REPORTED)
@@ -119,7 +119,7 @@ class ReportControllerTest {
         var user = authenticateAs();
         var id = UUID.randomUUID();
         var response = buildReportResponse(id);
-        var photo = new MockMultipartFile("photo", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, "image-bytes".getBytes());
+        var photo = new MockMultipartFile("photos", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, "image-bytes".getBytes());
 
         when(reportService.createReport(eq(user), any(CreateReportRequest.class))).thenReturn(response);
 
@@ -143,7 +143,7 @@ class ReportControllerTest {
     @DisplayName("POST /reports returns 422 when categoryId is missing")
     void createReportValidationFailureMissingCategory() throws Exception {
         authenticateAs();
-        var photo = new MockMultipartFile("photo", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, "image-bytes".getBytes());
+        var photo = new MockMultipartFile("photos", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, "image-bytes".getBytes());
 
         mockMvc.perform(multipart("/api/v1/reports")
                         .file(photo)
@@ -341,7 +341,7 @@ class ReportControllerTest {
         var user = authenticateAs();
         var id = UUID.randomUUID();
         var response = buildReportResponse(id);
-        var photo = new MockMultipartFile("photo", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, "image-bytes".getBytes());
+        var photo = new MockMultipartFile("photos", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, "image-bytes".getBytes());
 
         when(reportService.updateReport(eq(id), eq(user), any())).thenReturn(response);
 

@@ -11,15 +11,13 @@ import com.project.pantau.common.utils.ReportStatusTransitions;
 import com.project.pantau.dto.report.*;
 import com.project.pantau.dto.report_status.ReportStatusResponse;
 import com.project.pantau.dto.upload.UploadResponse;
-import com.project.pantau.entity.Category;
-import com.project.pantau.entity.Report;
-import com.project.pantau.entity.ReportStatusHistory;
-import com.project.pantau.entity.User;
+import com.project.pantau.entity.*;
 import com.project.pantau.enums.QueueTab;
 import com.project.pantau.enums.ReportStatus;
 import com.project.pantau.mapper.ReportMapper;
 import com.project.pantau.mapper.ReportStatusMapper;
 import com.project.pantau.repository.CategoryRepository;
+import com.project.pantau.repository.ReportPhotoRepository;
 import com.project.pantau.repository.ReportRepository;
 import com.project.pantau.repository.ReportStatusRepository;
 import com.project.pantau.service.ReportService;
@@ -31,9 +29,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +44,7 @@ public class ReportServiceImpl implements ReportService {
 
     private final ReportRepository reportRepository;
     private final ReportStatusRepository reportStatusRepository;
+    private final ReportPhotoRepository reportPhotoRepository;
     private final CategoryRepository categoryRepository;
     private final UploadService uploadService;
     private final ReportMapper reportMapper;
@@ -59,17 +59,17 @@ public class ReportServiceImpl implements ReportService {
 
         var category = categoryRepository.findById(request.categoryId())
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + request.categoryId()));
-        var upload = uploadService.upload(request.photo());
+        var uploads = uploadAll(request.photos());
 
         try {
             return saveReportAndHistory(
                     reporter,
                     request,
                     category,
-                    upload
+                    uploads
             );
         } catch (RuntimeException e) {
-            uploadService.delete(upload.id());
+            deleteUploads(uploads);
             throw e;
         }
     }
@@ -97,16 +97,20 @@ public class ReportServiceImpl implements ReportService {
             throw new ValidationException("Limit must not exceed " + MAX_NEARBY_LIMIT);
         }
 
-        return reportRepository.findNearbyReport(latitude, longitude, radiusMeter, limit)
-                .stream()
-                .map(reportMapper::toNearbyResponse)
+        var reports = reportRepository.findNearbyReport(latitude, longitude, radiusMeter, limit);
+        var thumbnails = loadThumbnails(reports);
+
+        return reports.stream()
+                .map(report -> reportMapper.toNearbyResponse(report, thumbnails.get(report.getId())))
                 .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
     public ReportResponse getReportDetail(UUID id) {
-        return reportMapper.toResponse(findReportById(id));
+        var report = findReportById(id);
+        var photoUrls = photoUrls(reportPhotoRepository.findByReportIdOrderByPositionAsc(id));
+        return reportMapper.toResponse(report, photoUrls);
     }
 
     @Override
@@ -142,9 +146,10 @@ public class ReportServiceImpl implements ReportService {
                 Sort.by(Sort.Direction.DESC, "createdAt")
         );
         var page = reportRepository.findByReporterId(reporter.getId(), pageable);
-        var items = page.getContent()
-                .stream()
-                .map(reportMapper::toResponse)
+        var reports = page.getContent();
+        var photoUrlsByReport = loadPhotoUrlsByReport(reports);
+        var items = reports.stream()
+                .map(report -> reportMapper.toResponse(report, photoUrlsByReport.getOrDefault(report.getId(), List.of())))
                 .toList();
 
         return new PagedResponse<>(
@@ -187,7 +192,8 @@ public class ReportServiceImpl implements ReportService {
 
         reportStatusRepository.save(reportStatusHistory);
 
-        return reportMapper.toResponse(savedReport);
+        var photoUrls = photoUrls(reportPhotoRepository.findByReportIdOrderByPositionAsc(id));
+        return reportMapper.toResponse(savedReport, photoUrls);
     }
 
     @Override
@@ -205,47 +211,60 @@ public class ReportServiceImpl implements ReportService {
         var category = categoryRepository.findById(request.categoryId())
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id: " + request.categoryId()));
 
-        if (request.photo() != null && !request.photo().isEmpty()) {
-            var upload = uploadService.upload(request.photo());
-            try {
-                var oldPhotoPublicId = report.getPhotoPublicId();
-                report.setPhotoUrl(upload.url());
-                report.setPhotoPublicId(upload.id());
-                report.setCategory(category);
-                report.setDescription(request.description());
-                report.setLocation(GeoUtils.point(request.latitude(), request.longitude()));
-                var saved = reportRepository.save(report);
-                if (oldPhotoPublicId != null) {
-                    uploadService.delete(oldPhotoPublicId);
-                }
-                return reportMapper.toResponse(saved);
-            } catch (RuntimeException e) {
-                uploadService.delete(upload.id());
-                throw e;
-            }
-        }
-
         report.setCategory(category);
         report.setDescription(request.description());
         report.setLocation(GeoUtils.point(request.latitude(), request.longitude()));
+
+        if (request.photos() != null && !request.photos().isEmpty()) {
+            return updateReportWithNewPhotos(report, request.photos());
+        }
+
         var saved = reportRepository.save(report);
-        return reportMapper.toResponse(saved);
+        var photoUrls = photoUrls(reportPhotoRepository.findByReportIdOrderByPositionAsc(id));
+        return reportMapper.toResponse(saved, photoUrls);
+    }
+
+    @Transactional
+    private ReportResponse updateReportWithNewPhotos(Report report, List<MultipartFile> files) {
+        var uploads = uploadAll(files);
+
+        try {
+            var saved = reportRepository.save(report);
+            var oldPhotos = reportPhotoRepository.findByReportIdOrderByPositionAsc(saved.getId());
+            reportPhotoRepository.deleteAll(oldPhotos);
+            var newPhotos = savePhotos(saved, uploads);
+            deletePhotoAssets(oldPhotos);
+
+            return reportMapper.toResponse(saved, photoUrls(newPhotos));
+        } catch (RuntimeException e) {
+            deleteUploads(uploads);
+            throw e;
+        }
     }
 
     @Override
+    @Transactional
     public void deleteReport(UUID id, User requester) {
         var report = findReportById(id);
         assertOwner(report, requester);
         assertEditable(report);
 
+        var photos = reportPhotoRepository.findByReportIdOrderByPositionAsc(id);
+        reportPhotoRepository.deleteAll(photos);
         reportRepository.delete(report);
+        deletePhotoAssetsSwallowingErrors(photos, id);
+    }
 
-        if (report.getPhotoPublicId() != null) {
+    private void deletePhotoAssetsSwallowingErrors(List<ReportPhoto> photos, UUID reportId) {
+        for (var photo : photos) {
+            if (photo.getPhotoPublicId() == null) {
+                continue;
+            }
             try {
-                uploadService.delete(report.getPhotoPublicId());
+                uploadService.delete(photo.getPhotoPublicId());
             } catch (RuntimeException e) {
                 logger.warn("Failed to delete Cloudinary asset {} for deleted report {}",
-                        report.getPhotoPublicId(), report.getId(), e);
+                        photo.getPhotoPublicId(), reportId, e);
             }
         }
     }
@@ -255,18 +274,18 @@ public class ReportServiceImpl implements ReportService {
             User reporter,
             CreateReportRequest request,
             Category category,
-            UploadResponse upload
+            List<UploadResponse> uploads
     ) {
         Report report = Report.builder()
                 .reporter(reporter)
                 .category(category)
                 .description(request.description())
-                .photoUrl(upload.url())
-                .photoPublicId(upload.id())
                 .location(GeoUtils.point(request.latitude(), request.longitude()))
                 .status(ReportStatus.REPORTED)
                 .build();
         Report savedReport = reportRepository.save(report);
+        var photos = savePhotos(savedReport, uploads);
+
         ReportStatusHistory reportStatusHistory = ReportStatusHistory.builder()
                 .report(savedReport)
                 .actor(reporter)
@@ -275,7 +294,75 @@ public class ReportServiceImpl implements ReportService {
 
         reportStatusRepository.save(reportStatusHistory);
 
-        return reportMapper.toResponse(savedReport);
+        return reportMapper.toResponse(savedReport, photoUrls(photos));
+    }
+
+    private List<UploadResponse> uploadAll(List<MultipartFile> files) {
+        var uploads = new ArrayList<UploadResponse>();
+        try {
+            for (var file : files) {
+                uploads.add(uploadService.upload(file));
+            }
+        } catch (RuntimeException e) {
+            deleteUploads(uploads);
+            throw e;
+        }
+        return uploads;
+    }
+
+    private void deleteUploads(List<UploadResponse> uploads) {
+        uploads.forEach(upload -> uploadService.delete(upload.id()));
+    }
+
+    private void deletePhotoAssets(List<ReportPhoto> photos) {
+        photos.forEach(photo -> {
+            if (photo.getPhotoPublicId() != null) {
+                uploadService.delete(photo.getPhotoPublicId());
+            }
+        });
+    }
+
+    private List<ReportPhoto> savePhotos(Report report, List<UploadResponse> uploads) {
+        var photos = new ArrayList<ReportPhoto>();
+        for (int i = 0; i < uploads.size(); i++) {
+            var upload = uploads.get(i);
+            photos.add(ReportPhoto.builder()
+                    .report(report)
+                    .photoUrl(upload.url())
+                    .photoPublicId(upload.id())
+                    .position(i)
+                    .build());
+        }
+        return reportPhotoRepository.saveAll(photos);
+    }
+
+    private List<String> photoUrls(List<ReportPhoto> photos) {
+        return photos.stream().map(ReportPhoto::getPhotoUrl).toList();
+    }
+
+    private Map<UUID, List<String>> loadPhotoUrlsByReport(List<Report> reports) {
+        if (reports.isEmpty()) {
+            return Map.of();
+        }
+
+        var reportIds = reports.stream().map(Report::getId).toList();
+        return reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(reportIds)
+                .stream()
+                .collect(Collectors.groupingBy(
+                        photo -> photo.getReport().getId(),
+                        LinkedHashMap::new,
+                        Collectors.mapping(ReportPhoto::getPhotoUrl, Collectors.toList())
+                ));
+    }
+
+    private Map<UUID, String> loadThumbnails(List<Report> reports) {
+        var photoUrlsByReport = loadPhotoUrlsByReport(reports);
+        var thumbnails = new HashMap<UUID, String>();
+        reports.forEach(report -> {
+            var urls = photoUrlsByReport.getOrDefault(report.getId(), List.of());
+            thumbnails.put(report.getId(), urls.isEmpty() ? null : urls.get(0));
+        });
+        return thumbnails;
     }
 
     private Report findReportById(UUID id) {
@@ -327,11 +414,12 @@ public class ReportServiceImpl implements ReportService {
         var statuses = tab.statuses().stream().map(Enum::name).toList();
         var pageable = OffsetPageable.of(offset, limit, Sort.unsorted());
         var page = reportRepository.findQueueReports(statuses, latitude, longitude, radiusMeter, pageable);
+        var reports = page.getContent();
+        var thumbnails = loadThumbnails(reports);
 
-        var items = page.getContent()
-                .stream()
+        var items = reports.stream()
                 .map(report -> {
-                    var response = reportMapper.toQueueResponse(report);
+                    var response = reportMapper.toQueueResponse(report, thumbnails.get(report.getId()));
                     var distance = GeoUtils.distanceMeters(
                             latitude, longitude, report.getLatitude(), report.getLongitude());
                     return new QueueReportResponse(

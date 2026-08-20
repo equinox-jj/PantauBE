@@ -18,7 +18,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.offset;
 
 /**
  * ReportMapper uses CategoryMapper (uses = CategoryMapper.class) which the
@@ -63,8 +62,6 @@ class ReportMapperTest {
                 .id(UUID.randomUUID())
                 .reporter(reporter)
                 .category(category)
-                .photoUrl("https://example.com/photo.jpg")
-                .photoPublicId("public-id")
                 .description("Big pothole on main road")
                 .location(GeoUtils.point(LATITUDE, LONGITUDE))
                 .status(ReportStatus.REPORTED)
@@ -74,15 +71,17 @@ class ReportMapperTest {
     }
 
     @Test
-    void toResponse_mapsAllFieldsIncludingLatLngAndNestedCategory() {
+    void toResponse_mapsAllFieldsIncludingLatLngNestedCategoryAndPhotoUrls() {
         Report report = buildReport();
+        List<String> photoUrls = List.of("https://example.com/photo1.jpg", "https://example.com/photo2.jpg");
 
-        ReportResponse response = reportMapper.toResponse(report);
+        ReportResponse response = reportMapper.toResponse(report, photoUrls);
 
         assertThat(response).isNotNull();
         assertThat(response.id()).isEqualTo(report.getId());
         assertThat(response.description()).isEqualTo("Big pothole on main road");
-        assertThat(response.photoUrl()).isEqualTo("https://example.com/photo.jpg");
+        assertThat(response.photoUrls()).containsExactly(
+                "https://example.com/photo1.jpg", "https://example.com/photo2.jpg");
         assertThat(response.latitude()).isEqualTo(LATITUDE, offset(1e-9));
         assertThat(response.longitude()).isEqualTo(LONGITUDE, offset(1e-9));
         assertThat(response.status()).isEqualTo(ReportStatus.REPORTED);
@@ -97,19 +96,19 @@ class ReportMapperTest {
     }
 
     @Test
-    void toResponse_returnsNullForNullInput() {
-        assertThat(reportMapper.toResponse((Report) null)).isNull();
+    void toResponse_returnsNullWhenAllArgumentsNull() {
+        assertThat(reportMapper.toResponse(null, null)).isNull();
     }
 
     @Test
     void toNearbyResponse_mapsAllFieldsExcludingDescription() {
         Report report = buildReport();
 
-        NearbyReportResponse response = reportMapper.toNearbyResponse(report);
+        NearbyReportResponse response = reportMapper.toNearbyResponse(report, "https://example.com/photo1.jpg");
 
         assertThat(response).isNotNull();
         assertThat(response.id()).isEqualTo(report.getId());
-        assertThat(response.photoUrl()).isEqualTo("https://example.com/photo.jpg");
+        assertThat(response.photoUrl()).isEqualTo("https://example.com/photo1.jpg");
         assertThat(response.status()).isEqualTo(ReportStatus.REPORTED);
         assertThat(response.latitude()).isEqualTo(LATITUDE, offset(1e-9));
         assertThat(response.longitude()).isEqualTo(LONGITUDE, offset(1e-9));
@@ -121,20 +120,20 @@ class ReportMapperTest {
     }
 
     @Test
-    void toNearbyResponse_returnsNullForNullInput() {
-        assertThat(reportMapper.toNearbyResponse((Report) null)).isNull();
+    void toNearbyResponse_returnsNullWhenAllArgumentsNull() {
+        assertThat(reportMapper.toNearbyResponse(null, null)).isNull();
     }
 
     @Test
     void toQueueResponse_mapsFieldsAndLeavesDistanceMeterNull() {
         Report report = buildReport();
 
-        QueueReportResponse response = reportMapper.toQueueResponse(report);
+        QueueReportResponse response = reportMapper.toQueueResponse(report, "https://example.com/photo1.jpg");
 
         assertThat(response).isNotNull();
         assertThat(response.id()).isEqualTo(report.getId());
         assertThat(response.description()).isEqualTo("Big pothole on main road");
-        assertThat(response.photoUrl()).isEqualTo("https://example.com/photo.jpg");
+        assertThat(response.photoUrl()).isEqualTo("https://example.com/photo1.jpg");
         assertThat(response.status()).isEqualTo(ReportStatus.REPORTED);
         assertThat(response.latitude()).isEqualTo(LATITUDE, offset(1e-9));
         assertThat(response.longitude()).isEqualTo(LONGITUDE, offset(1e-9));
@@ -146,45 +145,7 @@ class ReportMapperTest {
     }
 
     @Test
-    void toQueueResponse_returnsNullForNullInput() {
-        assertThat(reportMapper.toQueueResponse((Report) null)).isNull();
-    }
-
-    @Test
-    void toNearbyResponseList_mapsEachElementInOrder() {
-        Report first = buildReport();
-        Report second = buildReport();
-        second.setStatus(ReportStatus.RESOLVED);
-
-        List<NearbyReportResponse> responses = reportMapper.toNearbyResponse(List.of(first, second));
-
-        assertThat(responses).hasSize(2);
-        assertThat(responses.get(0).id()).isEqualTo(first.getId());
-        assertThat(responses.get(0).status()).isEqualTo(ReportStatus.REPORTED);
-        assertThat(responses.get(1).id()).isEqualTo(second.getId());
-        assertThat(responses.get(1).status()).isEqualTo(ReportStatus.RESOLVED);
-    }
-
-    @Test
-    void toNearbyResponseList_returnsNullForNullInput() {
-        assertThat(reportMapper.toNearbyResponse((List<Report>) null)).isNull();
-    }
-
-    @Test
-    void toResponseList_mapsEachElementInOrder() {
-        Report first = buildReport();
-        Report second = buildReport();
-        second.setStatus(ReportStatus.CLOSED);
-
-        List<ReportResponse> responses = reportMapper.toResponse(List.of(first, second));
-
-        assertThat(responses).hasSize(2);
-        assertThat(responses.get(0).status()).isEqualTo(ReportStatus.REPORTED);
-        assertThat(responses.get(1).status()).isEqualTo(ReportStatus.CLOSED);
-    }
-
-    @Test
-    void toResponseList_returnsNullForNullInput() {
-        assertThat(reportMapper.toResponse((List<Report>) null)).isNull();
+    void toQueueResponse_returnsNullWhenAllArgumentsNull() {
+        assertThat(reportMapper.toQueueResponse(null, null)).isNull();
     }
 }

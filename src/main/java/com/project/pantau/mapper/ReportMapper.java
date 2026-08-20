@@ -14,20 +14,19 @@ import java.util.List;
         uses = CategoryMapper.class
 )
 public interface ReportMapper {
-    @Mapping(target = "latitude", source = "latitude")
-    @Mapping(target = "longitude", source = "longitude")
-    ReportResponse toResponse(Report entity);
+    @Mapping(target = "latitude", source = "report.latitude")
+    @Mapping(target = "longitude", source = "report.longitude")
+    @Mapping(target = "photoUrls", source = "photoUrls")
+    ReportResponse toResponse(Report report, List<String> photoUrls);
 
-    @Mapping(target = "latitude", source = "latitude")
-    @Mapping(target = "longitude", source = "longitude")
-    NearbyReportResponse toNearbyResponse(Report entity);
+    @Mapping(target = "latitude", source = "report.latitude")
+    @Mapping(target = "longitude", source = "report.longitude")
+    @Mapping(target = "photoUrl", source = "photoUrl")
+    NearbyReportResponse toNearbyResponse(Report report, String photoUrl);
 
-    @Mapping(target = "latitude", source = "latitude")
-    @Mapping(target = "longitude", source = "longitude")
+    @Mapping(target = "latitude", source = "report.latitude")
+    @Mapping(target = "longitude", source = "report.longitude")
+    @Mapping(target = "photoUrl", source = "photoUrl")
     @Mapping(target = "distanceMeter", ignore = true)
-    QueueReportResponse toQueueResponse(Report entity);
-
-    List<NearbyReportResponse> toNearbyResponse(List<Report> entities);
-
-    List<ReportResponse> toResponse(List<Report> entities);
+    QueueReportResponse toQueueResponse(Report report, String photoUrl);
 }

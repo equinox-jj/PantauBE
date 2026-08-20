@@ -5,6 +5,7 @@ import com.project.pantau.enums.ReportStatus;
 import lombok.Builder;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Builder
@@ -12,7 +13,7 @@ public record ReportResponse(
         UUID id,
         CategoryResponse category,
         String description,
-        String photoUrl,
+        List<String> photoUrls,
         Double latitude,
         Double longitude,
         ReportStatus status,

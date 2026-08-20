@@ -43,12 +43,6 @@ public class Report {
     )
     private Category category;
 
-    @Column(name = "photo_url", nullable = false)
-    private String photoUrl;
-
-    @Column(name = "photo_public_id")
-    private String photoPublicId;
-
     @Column(name = "description")
     private String description;
 

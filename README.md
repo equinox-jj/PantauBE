@@ -102,17 +102,17 @@ snake_case.
 
 ### Reports — `/api/v1/reports`
 
-| Method | Endpoint        | Access     | Description                                            |
-|--------|-----------------|------------|--------------------------------------------------------|
-| POST   | `/`             | `CITIZEN`  | Create a report (multipart, with photo)                |
-| GET    | `/{id}`         | Public     | Get report detail                                      |
-| GET    | `/{id}/history` | Public     | Get a report's status change history                   |
-| GET    | `/nearby`       | Public     | List reports near a latitude/longitude within a radius |
-| GET    | `/mine`         | `CITIZEN`  | List the authenticated user's reports                  |
-| PATCH  | `/{id}`         | `CITIZEN`  | Update a report (multipart, owner only)                |
-| DELETE | `/{id}`         | `CITIZEN`  | Delete a report (owner only)                           |
-| GET    | `/queue`        | `RESOLVER` | List queued reports by tab, sorted by distance         |
-| PATCH  | `/{id}/status`  | `RESOLVER` | Update a report's status                               |
+| Method | Endpoint        | Access     | Description                                             |
+|--------|-----------------|------------|---------------------------------------------------------|
+| POST   | `/`             | `CITIZEN`  | Create a report (multipart, 1-4 photos)                 |
+| GET    | `/{id}`         | Public     | Get report detail                                       |
+| GET    | `/{id}/history` | Public     | Get a report's status change history                    |
+| GET    | `/nearby`       | Public     | List reports near a latitude/longitude within a radius  |
+| GET    | `/mine`         | `CITIZEN`  | List the authenticated user's reports                   |
+| PATCH  | `/{id}`         | `CITIZEN`  | Update a report (multipart, owner only, up to 4 photos) |
+| DELETE | `/{id}`         | `CITIZEN`  | Delete a report (owner only)                            |
+| GET    | `/queue`        | `RESOLVER` | List queued reports by tab, sorted by distance          |
+| PATCH  | `/{id}/status`  | `RESOLVER` | Update a report's status                                |
 
 Report status follows: `REPORTED → ACKNOWLEDGED → IN_PROGRESS → RESOLVED → CLOSED`, with `REJECTED` as a terminal
 alternate state. Allowed transitions are enforced in `ReportStatusTransitions`.

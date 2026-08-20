@@ -9,16 +9,14 @@ import com.project.pantau.dto.category.CategoryResponse;
 import com.project.pantau.dto.report.*;
 import com.project.pantau.dto.report_status.ReportStatusResponse;
 import com.project.pantau.dto.upload.UploadResponse;
-import com.project.pantau.entity.Category;
-import com.project.pantau.entity.Report;
-import com.project.pantau.entity.ReportStatusHistory;
-import com.project.pantau.entity.User;
+import com.project.pantau.entity.*;
 import com.project.pantau.enums.QueueTab;
 import com.project.pantau.enums.ReportStatus;
 import com.project.pantau.enums.UserRole;
 import com.project.pantau.mapper.ReportMapper;
 import com.project.pantau.mapper.ReportStatusMapper;
 import com.project.pantau.repository.CategoryRepository;
+import com.project.pantau.repository.ReportPhotoRepository;
 import com.project.pantau.repository.ReportRepository;
 import com.project.pantau.repository.ReportStatusRepository;
 import com.project.pantau.service.UploadService;
@@ -56,6 +54,8 @@ class ReportServiceImplTest {
     @Mock
     private ReportStatusRepository reportStatusRepository;
     @Mock
+    private ReportPhotoRepository reportPhotoRepository;
+    @Mock
     private CategoryRepository categoryRepository;
     @Mock
     private UploadService uploadService;
@@ -70,6 +70,7 @@ class ReportServiceImplTest {
         reportService = new ReportServiceImpl(
                 reportRepository,
                 reportStatusRepository,
+                reportPhotoRepository,
                 categoryRepository,
                 uploadService,
                 reportMapper,
@@ -108,7 +109,6 @@ class ReportServiceImplTest {
             User reporter,
             Category category,
             ReportStatus status,
-            String photoPublicId,
             double latitude,
             double longitude
     ) {
@@ -117,12 +117,21 @@ class ReportServiceImplTest {
                 .reporter(reporter)
                 .category(category)
                 .description("A pothole")
-                .photoUrl("http://cdn.example.com/photo.jpg")
-                .photoPublicId(photoPublicId)
                 .location(GeoUtils.point(latitude, longitude))
                 .status(status)
                 .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
                 .updatedAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build();
+    }
+
+    private ReportPhoto buildReportPhoto(Report report, String url, String publicId, int position) {
+        return ReportPhoto.builder()
+                .id(UUID.randomUUID())
+                .report(report)
+                .photoUrl(url)
+                .photoPublicId(publicId)
+                .position(position)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
                 .build();
     }
 
@@ -135,12 +144,12 @@ class ReportServiceImplTest {
                 .build();
     }
 
-    private ReportResponse buildReportResponse(Report report) {
+    private ReportResponse buildReportResponse(Report report, List<String> photoUrls) {
         return ReportResponse.builder()
                 .id(report.getId())
                 .category(buildCategoryResponse(report.getCategory()))
                 .description(report.getDescription())
-                .photoUrl(report.getPhotoUrl())
+                .photoUrls(photoUrls)
                 .latitude(report.getLatitude())
                 .longitude(report.getLongitude())
                 .status(report.getStatus())
@@ -157,24 +166,24 @@ class ReportServiceImplTest {
     class CreateReport {
 
         @Test
-        @DisplayName("saves report + status history and returns mapped response on success")
+        @DisplayName("uploads every photo, saves report + photos + status history, returns mapped response")
         void createReportSuccess() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var photo = mock(MultipartFile.class);
-            var request = new CreateReportRequest(1L, "Pothole on Jl. Sudirman", photo, JAKARTA_LAT, JAKARTA_LNG);
-            var upload = UploadResponse.builder()
-                    .id("cloud-id-1")
-                    .url("http://cdn.example.com/photo.jpg")
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            var savedReport = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "cloud-id-1", JAKARTA_LAT, JAKARTA_LNG);
-            var expectedResponse = buildReportResponse(savedReport);
+            var photo1 = mock(MultipartFile.class);
+            var photo2 = mock(MultipartFile.class);
+            var request = new CreateReportRequest(1L, "Pothole on Jl. Sudirman", List.of(photo1, photo2), JAKARTA_LAT, JAKARTA_LNG);
+            var upload1 = UploadResponse.builder().id("cloud-id-1").url("http://cdn.example.com/photo1.jpg").createdAt(LocalDateTime.now()).build();
+            var upload2 = UploadResponse.builder().id("cloud-id-2").url("http://cdn.example.com/photo2.jpg").createdAt(LocalDateTime.now()).build();
+            var savedReport = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var expectedResponse = buildReportResponse(savedReport, List.of(upload1.url(), upload2.url()));
 
             when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
-            when(uploadService.upload(photo)).thenReturn(upload);
+            when(uploadService.upload(photo1)).thenReturn(upload1);
+            when(uploadService.upload(photo2)).thenReturn(upload2);
             when(reportRepository.save(any(Report.class))).thenReturn(savedReport);
-            when(reportMapper.toResponse(savedReport)).thenReturn(expectedResponse);
+            when(reportPhotoRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+            when(reportMapper.toResponse(savedReport, List.of(upload1.url(), upload2.url()))).thenReturn(expectedResponse);
 
             var result = reportService.createReport(reporter, request);
 
@@ -186,11 +195,21 @@ class ReportServiceImplTest {
             assertThat(savedArg.getReporter()).isEqualTo(reporter);
             assertThat(savedArg.getCategory()).isEqualTo(category);
             assertThat(savedArg.getDescription()).isEqualTo("Pothole on Jl. Sudirman");
-            assertThat(savedArg.getPhotoUrl()).isEqualTo(upload.url());
-            assertThat(savedArg.getPhotoPublicId()).isEqualTo(upload.id());
             assertThat(savedArg.getStatus()).isEqualTo(ReportStatus.REPORTED);
             assertThat(savedArg.getLatitude()).isEqualTo(JAKARTA_LAT);
             assertThat(savedArg.getLongitude()).isEqualTo(JAKARTA_LNG);
+
+            @SuppressWarnings("unchecked")
+            var photosCaptor = ArgumentCaptor.forClass(List.class);
+            verify(reportPhotoRepository).saveAll(photosCaptor.capture());
+            List<ReportPhoto> savedPhotos = photosCaptor.getValue();
+            assertThat(savedPhotos).hasSize(2);
+            assertThat(savedPhotos.get(0).getReport()).isEqualTo(savedReport);
+            assertThat(savedPhotos.get(0).getPhotoUrl()).isEqualTo(upload1.url());
+            assertThat(savedPhotos.get(0).getPhotoPublicId()).isEqualTo(upload1.id());
+            assertThat(savedPhotos.get(0).getPosition()).isEqualTo(0);
+            assertThat(savedPhotos.get(1).getPhotoUrl()).isEqualTo(upload2.url());
+            assertThat(savedPhotos.get(1).getPosition()).isEqualTo(1);
 
             var historyCaptor = ArgumentCaptor.forClass(ReportStatusHistory.class);
             verify(reportStatusRepository).save(historyCaptor.capture());
@@ -208,7 +227,7 @@ class ReportServiceImplTest {
         void createReportCategoryNotFound() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var photo = mock(MultipartFile.class);
-            var request = new CreateReportRequest(99L, "desc", photo, JAKARTA_LAT, JAKARTA_LNG);
+            var request = new CreateReportRequest(99L, "desc", List.of(photo), JAKARTA_LAT, JAKARTA_LNG);
 
             when(categoryRepository.findById(99L)).thenReturn(Optional.empty());
 
@@ -225,7 +244,7 @@ class ReportServiceImplTest {
         void createReportInvalidLatitude() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var photo = mock(MultipartFile.class);
-            var request = new CreateReportRequest(1L, "desc", photo, 91.0, JAKARTA_LNG);
+            var request = new CreateReportRequest(1L, "desc", List.of(photo), 91.0, JAKARTA_LNG);
 
             assertThatThrownBy(() -> reportService.createReport(reporter, request))
                     .isInstanceOf(ValidationException.class)
@@ -239,7 +258,7 @@ class ReportServiceImplTest {
         void createReportInvalidLongitude() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var photo = mock(MultipartFile.class);
-            var request = new CreateReportRequest(1L, "desc", photo, JAKARTA_LAT, 181.0);
+            var request = new CreateReportRequest(1L, "desc", List.of(photo), JAKARTA_LAT, 181.0);
 
             assertThatThrownBy(() -> reportService.createReport(reporter, request))
                     .isInstanceOf(ValidationException.class)
@@ -249,28 +268,50 @@ class ReportServiceImplTest {
         }
 
         @Test
-        @DisplayName("deletes the uploaded photo and rethrows when persisting fails")
-        void createReportSaveFailureDeletesUpload() {
+        @DisplayName("deletes all uploaded photos and rethrows when persisting fails")
+        void createReportSaveFailureDeletesAllUploads() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var photo = mock(MultipartFile.class);
-            var request = new CreateReportRequest(1L, "desc", photo, JAKARTA_LAT, JAKARTA_LNG);
-            var upload = UploadResponse.builder()
-                    .id("cloud-id-2")
-                    .url("http://cdn.example.com/photo2.jpg")
-                    .createdAt(LocalDateTime.now())
-                    .build();
+            var photo1 = mock(MultipartFile.class);
+            var photo2 = mock(MultipartFile.class);
+            var request = new CreateReportRequest(1L, "desc", List.of(photo1, photo2), JAKARTA_LAT, JAKARTA_LNG);
+            var upload1 = UploadResponse.builder().id("cloud-id-1").url("http://cdn.example.com/photo1.jpg").createdAt(LocalDateTime.now()).build();
+            var upload2 = UploadResponse.builder().id("cloud-id-2").url("http://cdn.example.com/photo2.jpg").createdAt(LocalDateTime.now()).build();
 
             when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
-            when(uploadService.upload(photo)).thenReturn(upload);
+            when(uploadService.upload(photo1)).thenReturn(upload1);
+            when(uploadService.upload(photo2)).thenReturn(upload2);
             when(reportRepository.save(any(Report.class))).thenThrow(new RuntimeException("db down"));
 
             assertThatThrownBy(() -> reportService.createReport(reporter, request))
                     .isInstanceOf(RuntimeException.class)
                     .hasMessage("db down");
 
+            verify(uploadService).delete("cloud-id-1");
             verify(uploadService).delete("cloud-id-2");
             verify(reportStatusRepository, never()).save(any());
+            verify(reportPhotoRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("deletes earlier successful uploads and rethrows when a later upload fails")
+        void createReportPartialUploadFailureDeletesEarlierUploads() {
+            var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
+            var category = buildCategory(1L);
+            var photo1 = mock(MultipartFile.class);
+            var photo2 = mock(MultipartFile.class);
+            var request = new CreateReportRequest(1L, "desc", List.of(photo1, photo2), JAKARTA_LAT, JAKARTA_LNG);
+            var upload1 = UploadResponse.builder().id("cloud-id-1").url("http://cdn.example.com/photo1.jpg").createdAt(LocalDateTime.now()).build();
+
+            when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
+            when(uploadService.upload(photo1)).thenReturn(upload1);
+            when(uploadService.upload(photo2)).thenThrow(new ValidationException("Only JPEG, PNG, WEBP, or GIF images are allowed."));
+
+            assertThatThrownBy(() -> reportService.createReport(reporter, request))
+                    .isInstanceOf(ValidationException.class);
+
+            verify(uploadService).delete("cloud-id-1");
+            verify(reportRepository, never()).save(any());
         }
     }
 
@@ -282,23 +323,46 @@ class ReportServiceImplTest {
     class GetNearbyReports {
 
         @Test
-        @DisplayName("returns mapped list from repository query")
+        @DisplayName("returns mapped list with the first photo as thumbnail")
         void getNearbyReportsSuccess() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
-            var report2 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.ACKNOWLEDGED, "p2", JAKARTA_LAT + 0.01, JAKARTA_LNG + 0.01);
+            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var report2 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.ACKNOWLEDGED, JAKARTA_LAT + 0.01, JAKARTA_LNG + 0.01);
+            var photo1 = buildReportPhoto(report1, "http://cdn.example.com/p1.jpg", "p1", 0);
+            var photo2 = buildReportPhoto(report2, "http://cdn.example.com/p2.jpg", "p2", 0);
             var response1 = NearbyReportResponse.builder().id(report1.getId()).build();
             var response2 = NearbyReportResponse.builder().id(report2.getId()).build();
 
             when(reportRepository.findNearbyReport(JAKARTA_LAT, JAKARTA_LNG, 1000, 20))
                     .thenReturn(List.of(report1, report2));
-            when(reportMapper.toNearbyResponse(report1)).thenReturn(response1);
-            when(reportMapper.toNearbyResponse(report2)).thenReturn(response2);
+            when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId(), report2.getId())))
+                    .thenReturn(List.of(photo1, photo2));
+            when(reportMapper.toNearbyResponse(report1, "http://cdn.example.com/p1.jpg")).thenReturn(response1);
+            when(reportMapper.toNearbyResponse(report2, "http://cdn.example.com/p2.jpg")).thenReturn(response2);
 
             var result = reportService.getNearbyReports(JAKARTA_LAT, JAKARTA_LNG, 1000, 20);
 
             assertThat(result).containsExactly(response1, response2);
+        }
+
+        @Test
+        @DisplayName("passes a null thumbnail when a report has no photos")
+        void getNearbyReportsNoPhotos() {
+            var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
+            var category = buildCategory(1L);
+            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var response1 = NearbyReportResponse.builder().id(report1.getId()).build();
+
+            when(reportRepository.findNearbyReport(JAKARTA_LAT, JAKARTA_LNG, 1000, 20))
+                    .thenReturn(List.of(report1));
+            when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId())))
+                    .thenReturn(List.of());
+            when(reportMapper.toNearbyResponse(report1, null)).thenReturn(response1);
+
+            var result = reportService.getNearbyReports(JAKARTA_LAT, JAKARTA_LNG, 1000, 20);
+
+            assertThat(result).containsExactly(response1);
         }
 
         @Test
@@ -351,15 +415,18 @@ class ReportServiceImplTest {
     class GetReportDetail {
 
         @Test
-        @DisplayName("returns mapped response when found")
+        @DisplayName("returns mapped response with ordered photo urls when found")
         void getReportDetailSuccess() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
-            var expected = buildReportResponse(report);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var photo1 = buildReportPhoto(report, "http://cdn.example.com/p1.jpg", "p1", 0);
+            var photo2 = buildReportPhoto(report, "http://cdn.example.com/p2.jpg", "p2", 1);
+            var expected = buildReportResponse(report, List.of(photo1.getPhotoUrl(), photo2.getPhotoUrl()));
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
-            when(reportMapper.toResponse(report)).thenReturn(expected);
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of(photo1, photo2));
+            when(reportMapper.toResponse(report, List.of(photo1.getPhotoUrl(), photo2.getPhotoUrl()))).thenReturn(expected);
 
             var result = reportService.getReportDetail(report.getId());
 
@@ -391,7 +458,7 @@ class ReportServiceImplTest {
             var id = UUID.randomUUID();
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(id, reporter, category, ReportStatus.ACKNOWLEDGED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(id, reporter, category, ReportStatus.ACKNOWLEDGED, JAKARTA_LAT, JAKARTA_LNG);
             var history = ReportStatusHistory.builder()
                     .report(report)
                     .actor(reporter)
@@ -435,22 +502,26 @@ class ReportServiceImplTest {
     class GetMyReports {
 
         @Test
-        @DisplayName("builds an offset pageable, maps content, and returns page metadata")
+        @DisplayName("builds an offset pageable, maps content with photo urls, and returns page metadata")
         void getMyReportsSuccess() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
-            var report2 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.RESOLVED, "p2", JAKARTA_LAT, JAKARTA_LNG);
-            var response1 = buildReportResponse(report1);
-            var response2 = buildReportResponse(report2);
+            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var report2 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.RESOLVED, JAKARTA_LAT, JAKARTA_LNG);
+            var photo1 = buildReportPhoto(report1, "http://cdn.example.com/p1.jpg", "p1", 0);
+            var photo2 = buildReportPhoto(report2, "http://cdn.example.com/p2.jpg", "p2", 0);
+            var response1 = buildReportResponse(report1, List.of(photo1.getPhotoUrl()));
+            var response2 = buildReportResponse(report2, List.of(photo2.getPhotoUrl()));
 
             when(reportRepository.findByReporterId(eq(reporter.getId()), any(Pageable.class)))
                     .thenAnswer(invocation -> {
                         Pageable pageable = invocation.getArgument(1);
                         return new PageImpl<Report>(List.of(report1, report2), pageable, 5);
                     });
-            when(reportMapper.toResponse(report1)).thenReturn(response1);
-            when(reportMapper.toResponse(report2)).thenReturn(response2);
+            when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId(), report2.getId())))
+                    .thenReturn(List.of(photo1, photo2));
+            when(reportMapper.toResponse(report1, List.of(photo1.getPhotoUrl()))).thenReturn(response1);
+            when(reportMapper.toResponse(report2, List.of(photo2.getPhotoUrl()))).thenReturn(response2);
 
             var result = reportService.getMyReports(reporter, 2, 0);
 
@@ -513,13 +584,14 @@ class ReportServiceImplTest {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var resolver = buildUser(UUID.randomUUID(), UserRole.RESOLVER);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateStatusRequest(ReportStatus.ACKNOWLEDGED, null);
-            var expected = buildReportResponse(report);
+            var expected = buildReportResponse(report, List.of());
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
             when(reportRepository.save(report)).thenReturn(report);
-            when(reportMapper.toResponse(report)).thenReturn(expected);
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of());
+            when(reportMapper.toResponse(report, List.of())).thenReturn(expected);
 
             var result = reportService.updateReportStatus(report.getId(), resolver, request);
 
@@ -542,13 +614,14 @@ class ReportServiceImplTest {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var resolver = buildUser(UUID.randomUUID(), UserRole.RESOLVER);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateStatusRequest(ReportStatus.REJECTED, "Duplicate report");
-            var expected = buildReportResponse(report);
+            var expected = buildReportResponse(report, List.of());
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
             when(reportRepository.save(report)).thenReturn(report);
-            when(reportMapper.toResponse(report)).thenReturn(expected);
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of());
+            when(reportMapper.toResponse(report, List.of())).thenReturn(expected);
 
             var result = reportService.updateReportStatus(report.getId(), resolver, request);
 
@@ -566,7 +639,7 @@ class ReportServiceImplTest {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var resolver = buildUser(UUID.randomUUID(), UserRole.RESOLVER);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateStatusRequest(ReportStatus.REJECTED, "   ");
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
@@ -585,7 +658,7 @@ class ReportServiceImplTest {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var resolver = buildUser(UUID.randomUUID(), UserRole.RESOLVER);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateStatusRequest(ReportStatus.RESOLVED, null);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
@@ -622,19 +695,21 @@ class ReportServiceImplTest {
     class UpdateReport {
 
         @Test
-        @DisplayName("updates fields without touching photo when no new photo is provided")
+        @DisplayName("updates fields without touching photos when no new photos are provided")
         void updateReportSuccessNoPhoto() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var oldCategory = buildCategory(1L);
             var newCategory = buildCategory(2L);
-            var report = buildReport(UUID.randomUUID(), reporter, oldCategory, ReportStatus.REPORTED, "old-photo", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, oldCategory, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var existingPhoto = buildReportPhoto(report, "http://cdn.example.com/old.jpg", "old-photo", 0);
             var request = new UpdateReportRequest(2L, "Updated description", null, JAKARTA_LAT + 0.1, JAKARTA_LNG + 0.1);
-            var expected = buildReportResponse(report);
+            var expected = buildReportResponse(report, List.of(existingPhoto.getPhotoUrl()));
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
             when(categoryRepository.findById(2L)).thenReturn(Optional.of(newCategory));
             when(reportRepository.save(report)).thenReturn(report);
-            when(reportMapper.toResponse(report)).thenReturn(expected);
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of(existingPhoto));
+            when(reportMapper.toResponse(report, List.of(existingPhoto.getPhotoUrl()))).thenReturn(expected);
 
             var result = reportService.updateReport(report.getId(), reporter, request);
 
@@ -643,57 +718,69 @@ class ReportServiceImplTest {
             assertThat(report.getDescription()).isEqualTo("Updated description");
             assertThat(report.getLatitude()).isEqualTo(JAKARTA_LAT + 0.1);
             assertThat(report.getLongitude()).isEqualTo(JAKARTA_LNG + 0.1);
-            assertThat(report.getPhotoPublicId()).isEqualTo("old-photo");
 
             verify(uploadService, never()).upload(any());
             verify(uploadService, never()).delete(any());
+            verify(reportPhotoRepository, never()).deleteAll(any());
+            verify(reportPhotoRepository, never()).saveAll(any());
         }
 
         @Test
-        @DisplayName("uploads new photo, saves, and deletes the old photo asset on success")
-        void updateReportSuccessWithPhotoDeletesOldUpload() {
+        @DisplayName("uploads new photos, replaces the old set, and deletes old photo assets on success")
+        void updateReportSuccessWithPhotosReplacesOldSet() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "old-photo", JAKARTA_LAT, JAKARTA_LNG);
-            var photo = mock(MultipartFile.class);
-            when(photo.isEmpty()).thenReturn(false);
-            var request = new UpdateReportRequest(1L, "Updated description", photo, JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var oldPhoto = buildReportPhoto(report, "http://cdn.example.com/old.jpg", "old-photo", 0);
+            var newFile = mock(MultipartFile.class);
+            var request = new UpdateReportRequest(1L, "Updated description", List.of(newFile), JAKARTA_LAT, JAKARTA_LNG);
             var upload = UploadResponse.builder().id("new-photo").url("http://cdn.example.com/new.jpg").createdAt(LocalDateTime.now()).build();
-            var expected = buildReportResponse(report);
+            var expected = buildReportResponse(report, List.of(upload.url()));
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
             when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
-            when(uploadService.upload(photo)).thenReturn(upload);
+            when(uploadService.upload(newFile)).thenReturn(upload);
             when(reportRepository.save(report)).thenReturn(report);
-            when(reportMapper.toResponse(report)).thenReturn(expected);
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of(oldPhoto));
+            when(reportPhotoRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+            when(reportMapper.toResponse(report, List.of(upload.url()))).thenReturn(expected);
 
             var result = reportService.updateReport(report.getId(), reporter, request);
 
             assertThat(result).isEqualTo(expected);
-            assertThat(report.getPhotoUrl()).isEqualTo(upload.url());
-            assertThat(report.getPhotoPublicId()).isEqualTo(upload.id());
 
+            verify(reportPhotoRepository).deleteAll(List.of(oldPhoto));
             verify(uploadService).delete("old-photo");
             verify(uploadService, never()).delete("new-photo");
+
+            @SuppressWarnings("unchecked")
+            var photosCaptor = ArgumentCaptor.forClass(List.class);
+            verify(reportPhotoRepository).saveAll(photosCaptor.capture());
+            List<ReportPhoto> savedPhotos = photosCaptor.getValue();
+            assertThat(savedPhotos).hasSize(1);
+            assertThat(savedPhotos.get(0).getPhotoUrl()).isEqualTo(upload.url());
+            assertThat(savedPhotos.get(0).getPhotoPublicId()).isEqualTo(upload.id());
+            assertThat(savedPhotos.get(0).getPosition()).isEqualTo(0);
         }
 
         @Test
-        @DisplayName("does not delete any upload when report previously had no photo public id")
-        void updateReportSuccessWithPhotoNoOldUpload() {
+        @DisplayName("does not delete any upload when the report previously had no photos")
+        void updateReportSuccessWithPhotosNoOldUpload() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, null, JAKARTA_LAT, JAKARTA_LNG);
-            var photo = mock(MultipartFile.class);
-            when(photo.isEmpty()).thenReturn(false);
-            var request = new UpdateReportRequest(1L, "Updated description", photo, JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var newFile = mock(MultipartFile.class);
+            var request = new UpdateReportRequest(1L, "Updated description", List.of(newFile), JAKARTA_LAT, JAKARTA_LNG);
             var upload = UploadResponse.builder().id("new-photo").url("http://cdn.example.com/new.jpg").createdAt(LocalDateTime.now()).build();
-            var expected = buildReportResponse(report);
+            var expected = buildReportResponse(report, List.of(upload.url()));
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
             when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
-            when(uploadService.upload(photo)).thenReturn(upload);
+            when(uploadService.upload(newFile)).thenReturn(upload);
             when(reportRepository.save(report)).thenReturn(report);
-            when(reportMapper.toResponse(report)).thenReturn(expected);
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of());
+            when(reportPhotoRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+            when(reportMapper.toResponse(report, List.of(upload.url()))).thenReturn(expected);
 
             var result = reportService.updateReport(report.getId(), reporter, request);
 
@@ -702,19 +789,18 @@ class ReportServiceImplTest {
         }
 
         @Test
-        @DisplayName("deletes the newly uploaded photo and rethrows when save fails")
-        void updateReportSaveFailureDeletesNewUpload() {
+        @DisplayName("deletes newly uploaded photos and rethrows when save fails, leaving old photos untouched")
+        void updateReportSaveFailureDeletesNewUploads() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "old-photo", JAKARTA_LAT, JAKARTA_LNG);
-            var photo = mock(MultipartFile.class);
-            when(photo.isEmpty()).thenReturn(false);
-            var request = new UpdateReportRequest(1L, "Updated description", photo, JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var newFile = mock(MultipartFile.class);
+            var request = new UpdateReportRequest(1L, "Updated description", List.of(newFile), JAKARTA_LAT, JAKARTA_LNG);
             var upload = UploadResponse.builder().id("new-photo").url("http://cdn.example.com/new.jpg").createdAt(LocalDateTime.now()).build();
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
             when(categoryRepository.findById(1L)).thenReturn(Optional.of(category));
-            when(uploadService.upload(photo)).thenReturn(upload);
+            when(uploadService.upload(newFile)).thenReturn(upload);
             when(reportRepository.save(report)).thenThrow(new RuntimeException("db down"));
 
             assertThatThrownBy(() -> reportService.updateReport(report.getId(), reporter, request))
@@ -722,7 +808,8 @@ class ReportServiceImplTest {
                     .hasMessage("db down");
 
             verify(uploadService).delete("new-photo");
-            verify(uploadService, never()).delete("old-photo");
+            verify(reportPhotoRepository, never()).deleteAll(any());
+            verify(reportPhotoRepository, never()).saveAll(any());
         }
 
         @Test
@@ -744,7 +831,7 @@ class ReportServiceImplTest {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var otherUser = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateReportRequest(1L, "desc", null, JAKARTA_LAT, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
@@ -760,7 +847,7 @@ class ReportServiceImplTest {
         void updateReportNotEditable() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.ACKNOWLEDGED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.ACKNOWLEDGED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateReportRequest(1L, "desc", null, JAKARTA_LAT, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
@@ -776,7 +863,7 @@ class ReportServiceImplTest {
         void updateReportInvalidCoordinates() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateReportRequest(1L, "desc", null, 200.0, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
@@ -792,7 +879,7 @@ class ReportServiceImplTest {
         void updateReportCategoryNotFound() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
             var request = new UpdateReportRequest(99L, "desc", null, JAKARTA_LAT, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
@@ -814,13 +901,14 @@ class ReportServiceImplTest {
     class DeleteReport {
 
         @Test
-        @DisplayName("deletes report and does not touch upload service when there is no photo public id")
+        @DisplayName("deletes report and does not touch upload service when there are no photos")
         void deleteReportSuccessNoPhoto() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, null, JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of());
 
             reportService.deleteReport(report.getId(), reporter);
 
@@ -829,28 +917,52 @@ class ReportServiceImplTest {
         }
 
         @Test
-        @DisplayName("deletes report and the associated upload asset when photo public id is present")
-        void deleteReportSuccessWithPhoto() {
+        @DisplayName("deletes the report_photos rows before the report row, so Hibernate never sees a dangling reference")
+        void deleteReportDeletesPhotoRowsBeforeReportRow() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "photo-1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var photo1 = buildReportPhoto(report, "http://cdn.example.com/p1.jpg", "photo-1", 0);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of(photo1));
+
+            reportService.deleteReport(report.getId(), reporter);
+
+            var inOrder = org.mockito.Mockito.inOrder(reportPhotoRepository, reportRepository);
+            inOrder.verify(reportPhotoRepository).deleteAll(List.of(photo1));
+            inOrder.verify(reportRepository).delete(report);
+        }
+
+        @Test
+        @DisplayName("deletes report and every associated upload asset when photos are present")
+        void deleteReportSuccessWithPhotos() {
+            var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
+            var category = buildCategory(1L);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var photo1 = buildReportPhoto(report, "http://cdn.example.com/p1.jpg", "photo-1", 0);
+            var photo2 = buildReportPhoto(report, "http://cdn.example.com/p2.jpg", "photo-2", 1);
+
+            when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of(photo1, photo2));
 
             reportService.deleteReport(report.getId(), reporter);
 
             verify(reportRepository).delete(report);
             verify(uploadService).delete("photo-1");
+            verify(uploadService).delete("photo-2");
         }
 
         @Test
-        @DisplayName("swallows exceptions raised while deleting the upload asset")
+        @DisplayName("swallows exceptions raised while deleting an upload asset")
         void deleteReportUploadDeleteFailureIsSwallowed() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "photo-1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
+            var photo = buildReportPhoto(report, "http://cdn.example.com/p1.jpg", "photo-1", 0);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
+            when(reportPhotoRepository.findByReportIdOrderByPositionAsc(report.getId())).thenReturn(List.of(photo));
             org.mockito.Mockito.doThrow(new RuntimeException("cloud error")).when(uploadService).delete("photo-1");
 
             reportService.deleteReport(report.getId(), reporter);
@@ -879,7 +991,7 @@ class ReportServiceImplTest {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var otherUser = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, JAKARTA_LAT, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
 
@@ -894,7 +1006,7 @@ class ReportServiceImplTest {
         void deleteReportNotEditable() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
-            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.RESOLVED, "p1", JAKARTA_LAT, JAKARTA_LNG);
+            var report = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.RESOLVED, JAKARTA_LAT, JAKARTA_LNG);
 
             when(reportRepository.findById(report.getId())).thenReturn(Optional.of(report));
 
@@ -913,20 +1025,22 @@ class ReportServiceImplTest {
     class GetQueue {
 
         @Test
-        @DisplayName("returns queue items with computed distance and aggregated counts")
+        @DisplayName("returns queue items with computed distance, thumbnail and aggregated counts")
         void getQueueSuccess() {
             var reporter = buildUser(UUID.randomUUID(), UserRole.CITIZEN);
             var category = buildCategory(1L);
             double nearbyLat = JAKARTA_LAT + 0.001;
             double nearbyLng = JAKARTA_LNG + 0.001;
-            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, "p1", nearbyLat, nearbyLng);
-            var report2 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.ACKNOWLEDGED, "p2", JAKARTA_LAT, JAKARTA_LNG);
+            var report1 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.REPORTED, nearbyLat, nearbyLng);
+            var report2 = buildReport(UUID.randomUUID(), reporter, category, ReportStatus.ACKNOWLEDGED, JAKARTA_LAT, JAKARTA_LNG);
+            var photo1 = buildReportPhoto(report1, "http://cdn.example.com/p1.jpg", "p1", 0);
+            var photo2 = buildReportPhoto(report2, "http://cdn.example.com/p2.jpg", "p2", 0);
 
             var queueResponse1 = QueueReportResponse.builder()
                     .id(report1.getId())
                     .category(buildCategoryResponse(category))
                     .description(report1.getDescription())
-                    .photoUrl(report1.getPhotoUrl())
+                    .photoUrl(photo1.getPhotoUrl())
                     .status(report1.getStatus())
                     .latitude(report1.getLatitude())
                     .longitude(report1.getLongitude())
@@ -936,7 +1050,7 @@ class ReportServiceImplTest {
                     .id(report2.getId())
                     .category(buildCategoryResponse(category))
                     .description(report2.getDescription())
-                    .photoUrl(report2.getPhotoUrl())
+                    .photoUrl(photo2.getPhotoUrl())
                     .status(report2.getStatus())
                     .latitude(report2.getLatitude())
                     .longitude(report2.getLongitude())
@@ -953,8 +1067,10 @@ class ReportServiceImplTest {
                 Pageable pageable = invocation.getArgument(4);
                 return new PageImpl<Report>(List.of(report1, report2), pageable, 2);
             });
-            when(reportMapper.toQueueResponse(report1)).thenReturn(queueResponse1);
-            when(reportMapper.toQueueResponse(report2)).thenReturn(queueResponse2);
+            when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId(), report2.getId())))
+                    .thenReturn(List.of(photo1, photo2));
+            when(reportMapper.toQueueResponse(report1, photo1.getPhotoUrl())).thenReturn(queueResponse1);
+            when(reportMapper.toQueueResponse(report2, photo2.getPhotoUrl())).thenReturn(queueResponse2);
 
             var reportedCount = mock(StatusCountProjection.class);
             when(reportedCount.getStatus()).thenReturn("REPORTED");
@@ -979,6 +1095,7 @@ class ReportServiceImplTest {
             var expectedDistance2 = GeoUtils.distanceMeters(JAKARTA_LAT, JAKARTA_LNG, JAKARTA_LAT, JAKARTA_LNG);
             assertThat(result.items().get(0).distanceMeter()).isEqualTo(expectedDistance1);
             assertThat(result.items().get(0).id()).isEqualTo(report1.getId());
+            assertThat(result.items().get(0).photoUrl()).isEqualTo(photo1.getPhotoUrl());
             assertThat(result.items().get(1).distanceMeter()).isEqualTo(expectedDistance2);
             assertThat(result.items().get(1).id()).isEqualTo(report2.getId());
 
