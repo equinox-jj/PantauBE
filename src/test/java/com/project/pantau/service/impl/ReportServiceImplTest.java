@@ -199,13 +199,12 @@ class ReportServiceImplTest {
             assertThat(savedArg.getLatitude()).isEqualTo(JAKARTA_LAT);
             assertThat(savedArg.getLongitude()).isEqualTo(JAKARTA_LNG);
 
-            @SuppressWarnings("unchecked")
             var photosCaptor = ArgumentCaptor.forClass(List.class);
             verify(reportPhotoRepository).saveAll(photosCaptor.capture());
             List<ReportPhoto> savedPhotos = photosCaptor.getValue();
             assertThat(savedPhotos).hasSize(2);
-            assertThat(savedPhotos.get(0).getReport()).isEqualTo(savedReport);
-            assertThat(savedPhotos.get(0).getPhotoUrl()).isEqualTo(upload1.url());
+            assertThat(savedPhotos.getFirst().getReport()).isEqualTo(savedReport);
+            assertThat(savedPhotos.getFirst().getPhotoUrl()).isEqualTo(upload1.url());
             assertThat(savedPhotos.get(0).getPhotoPublicId()).isEqualTo(upload1.id());
             assertThat(savedPhotos.get(0).getPosition()).isEqualTo(0);
             assertThat(savedPhotos.get(1).getPhotoUrl()).isEqualTo(upload2.url());
@@ -516,7 +515,7 @@ class ReportServiceImplTest {
             when(reportRepository.findByReporterId(eq(reporter.getId()), any(Pageable.class)))
                     .thenAnswer(invocation -> {
                         Pageable pageable = invocation.getArgument(1);
-                        return new PageImpl<Report>(List.of(report1, report2), pageable, 5);
+                        return new PageImpl<>(List.of(report1, report2), pageable, 5);
                     });
             when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId(), report2.getId())))
                     .thenReturn(List.of(photo1, photo2));
@@ -753,14 +752,13 @@ class ReportServiceImplTest {
             verify(uploadService).delete("old-photo");
             verify(uploadService, never()).delete("new-photo");
 
-            @SuppressWarnings("unchecked")
             var photosCaptor = ArgumentCaptor.forClass(List.class);
             verify(reportPhotoRepository).saveAll(photosCaptor.capture());
             List<ReportPhoto> savedPhotos = photosCaptor.getValue();
             assertThat(savedPhotos).hasSize(1);
-            assertThat(savedPhotos.get(0).getPhotoUrl()).isEqualTo(upload.url());
-            assertThat(savedPhotos.get(0).getPhotoPublicId()).isEqualTo(upload.id());
-            assertThat(savedPhotos.get(0).getPosition()).isEqualTo(0);
+            assertThat(savedPhotos.getFirst().getPhotoUrl()).isEqualTo(upload.url());
+            assertThat(savedPhotos.getFirst().getPhotoPublicId()).isEqualTo(upload.id());
+            assertThat(savedPhotos.getFirst().getPosition()).isEqualTo(0);
         }
 
         @Test
@@ -1065,7 +1063,7 @@ class ReportServiceImplTest {
                     any(Pageable.class)
             )).thenAnswer(invocation -> {
                 Pageable pageable = invocation.getArgument(4);
-                return new PageImpl<Report>(List.of(report1, report2), pageable, 2);
+                return new PageImpl<>(List.of(report1, report2), pageable, 2);
             });
             when(reportPhotoRepository.findByReportIdInOrderByReportIdAscPositionAsc(List.of(report1.getId(), report2.getId())))
                     .thenReturn(List.of(photo1, photo2));
@@ -1093,7 +1091,7 @@ class ReportServiceImplTest {
             assertThat(result.items()).hasSize(2);
             var expectedDistance1 = GeoUtils.distanceMeters(JAKARTA_LAT, JAKARTA_LNG, nearbyLat, nearbyLng);
             var expectedDistance2 = GeoUtils.distanceMeters(JAKARTA_LAT, JAKARTA_LNG, JAKARTA_LAT, JAKARTA_LNG);
-            assertThat(result.items().get(0).distanceMeter()).isEqualTo(expectedDistance1);
+            assertThat(result.items().getFirst().distanceMeter()).isEqualTo(expectedDistance1);
             assertThat(result.items().get(0).id()).isEqualTo(report1.getId());
             assertThat(result.items().get(0).photoUrl()).isEqualTo(photo1.getPhotoUrl());
             assertThat(result.items().get(1).distanceMeter()).isEqualTo(expectedDistance2);

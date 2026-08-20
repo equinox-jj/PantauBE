@@ -361,7 +361,7 @@ public class ReportServiceImpl implements ReportService {
         var thumbnails = new HashMap<UUID, String>();
         reports.forEach(report -> {
             var urls = photoUrlsByReport.getOrDefault(report.getId(), List.of());
-            thumbnails.put(report.getId(), urls.isEmpty() ? null : urls.get(0));
+            thumbnails.put(report.getId(), urls.isEmpty() ? null : urls.getFirst());
         });
         return thumbnails;
     }

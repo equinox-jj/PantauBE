@@ -149,7 +149,7 @@ class ReportControllerTest {
                         .file(photo)
                         .param("latitude", "-6.2")
                         .param("longitude", "106.8"))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.status").value(false))
                 .andExpect(jsonPath("$.message").value("Validation failed"));
     }
@@ -163,7 +163,7 @@ class ReportControllerTest {
                         .param("categoryId", "1")
                         .param("latitude", "-6.2")
                         .param("longitude", "106.8"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableContent());
     }
 
     // ---------- getReportDetail ----------
@@ -384,7 +384,7 @@ class ReportControllerTest {
         mockMvc.perform(multipart(HttpMethod.PATCH, "/api/v1/reports/{id}", id)
                         .param("categoryId", "1")
                         .param("longitude", "106.8"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
@@ -549,7 +549,7 @@ class ReportControllerTest {
         mockMvc.perform(patch("/api/v1/reports/{id}/status", id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isUnprocessableEntity())
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.message").value("Validation failed"));
     }
 
