@@ -33,7 +33,7 @@ app:
 
 logging:
   level:
-    root: ${LOG_LEVEL}
+    root: ${LOG_LEVEL:INFO}
 
 jwt:
   secret-key: ${JWT_SECRET_KEY}
